@@ -11,8 +11,7 @@ class RobustRegression():
 		M = np.eye(dim + 2)
 		self.M11 = M[0,0]
 		self.M12 = M[0,1:]
-		# self.M22 = M[1:,1:]
-		self.M22 = np.ones([dim + 1, dim + 1])
+
 		self.kde_bandwidth = kde_bandwidth
 		self.reg = reg
 		self.lr = lr
@@ -26,7 +25,7 @@ class RobustRegression():
 		self.y_mean = None
 		self.X_std = None
 
-	def fit(self, Xsrc, ysrc, Xtrg, max_iteration=10000, beta1=0.9, beta2=0.999, eps=1e-8):
+	def fit(self, Xsrc, ysrc, Xtrg, max_iteration=10000, beta1=0.9, beta2=0.999):
 		"""
 
 		Args:

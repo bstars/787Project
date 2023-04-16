@@ -3,6 +3,7 @@ from sklearn.metrics import pairwise_distances
 from typing import Callable
 import matplotlib.pyplot as plt
 from RobustRegression import RobustRegression
+from RobustNNRegression import RobustNNRegression
 
 
 class RRSafeOpt():
@@ -28,7 +29,8 @@ class RRSafeOpt():
 		:param beta:
 		"""
 
-		self.rr = RobustRegression(dim = dim, kde_bandwidth=rr_kde_bandwidth)
+		# self.rr = RobustRegression(dim = dim, kde_bandwidth=rr_kde_bandwidth)
+		self.rr = RobustNNRegression(dim = dim, nn_dim = 16, kde_bandwidth=rr_kde_bandwidth)
 		self.dim = dim
 		self.f = f
 		if self.dim == 1:
@@ -40,7 +42,7 @@ class RRSafeOpt():
 		self.threshold = threshold
 
 		self.observations = np.concatenate([seed_set, f(seed_set)[:,None], np.ones([len(seed_set),1])], axis=1)
-		self.rr.fit(self.observations[:, :-2], self.observations[:, -2], self.xrange, safe_threshold=self.threshold)
+		self.rr.fit(self.observations[:, :-2], self.observations[:, -2], self.xrange, safe_threshold=self.threshold, max_iteration=5000)
 
 		self.C = np.zeros([len(self.xrange), 2])
 		self.C[:, 0] = -np.inf
@@ -67,11 +69,13 @@ class RRSafeOpt():
 			# The subset of safe region where it's likely to contain the maximum
 			lmax = np.max(self.C[self.S, 0])
 			likely = np.where(self.C[self.S, 1] >= (lmax - 1e-3))[0]
-			M = self.S[likely]
+			M = self.S[likely] # only consider the subset of safe region where it's likely to contain the maximum
 
-			# M = self.S
+			M = self.S
 
-			idx = np.argmax(self.C[M, :][:, 1] - self.C[M, :][:, 0])
+			# idx = np.argmax(self.C[M, :][:, 1] - self.C[M, :][:, 0]) # maximum uncertainty
+			idx = np.argmax(1.5 * self.C[M, :][:, 1] - 0.5 * self.C[M, :][:, 0]) # upper confidence bound
+
 			idx = M[idx]
 		if self.dim == 1:
 			return self.xrange[idx, 0]
@@ -96,7 +100,7 @@ class RRSafeOpt():
 			safe = y > self.threshold
 			append = np.concatenate([x, y, safe], axis=1)
 		self.observations = np.concatenate([self.observations, append], axis=0)
-		self.rr.fit(self.observations[:, :-2], self.observations[:, -2], self.xrange, safe_threshold=self.threshold)
+		self.rr.fit(self.observations[:, :-2], self.observations[:, -2], self.xrange, safe_threshold=self.threshold, max_iteration=500)
 		self.update_set()
 
 def eg():
@@ -112,7 +116,7 @@ def eg():
 
 
 	# seed_idx = np.random.randint(0, num, size=10)
-	seed_idx = np.random.choice(np.where(ys > threshold)[0], size=3, replace=False)
+	seed_idx = np.random.choice(np.where(ys > threshold)[0], size=5, replace=False)
 	seed_set = xs[seed_idx]
 	rrsafeopt = RRSafeOpt(dim=xs.shape[1], f=truef, xrange=xs, seed_set=seed_set, threshold=threshold, rr_kde_bandwidth=0.2)
 

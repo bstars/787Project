@@ -10,10 +10,10 @@ class ProbabilisticRegressor():
 	def __init__(self, **kwargs):
 		super().__init__()
 
-	def fit(self, **kwargs):
+	def fit(self, X, y, **kwargs):
 		pass
 
-	def predict(self, **kwargs):
+	def predict(self, X, **kwargs):
 		pass
 
 class GaussianProc(ProbabilisticRegressor):
@@ -253,7 +253,7 @@ class RobustNNRegression(ProbabilisticRegressor):
 		self.kde_bandwidth = kde_bandwidth
 
 		self.M11 = torch.ones([1,], requires_grad=False) * 0.1
-		self.M12 = torch.ones([nn_dim,], requires_grad=False) * 0.1
+		self.M12 = torch.ones([nn_dim[-1],], requires_grad=False) * 0.1
 
 		self.kde_src = KernelDensity(kernel='gaussian', bandwidth=kde_bandwidth)
 		self.kde_trg = KernelDensity(kernel='gaussian', bandwidth=kde_bandwidth)
@@ -269,13 +269,13 @@ class RobustNNRegression(ProbabilisticRegressor):
 
 		act = nn.LeakyReLU
 
-		self.nn = nn.Sequential(
-			nn.Linear(dim, 16), act(),
-			# nn.Linear(16, 32), act(),
-			# nn.Linear(32, 32), act(),
-			nn.Linear(16, 32), act(),
-			nn.Linear(32, nn_dim)
-		)
+
+		layers = []
+		for i in range(len(nn_dim)-2):
+			layers.append(nn.Linear(nn_dim[i], nn_dim[i+1]))
+			layers.append(act())
+		layers.append(nn.Linear(nn_dim[-2], nn_dim[-1]))
+		self.nn = nn.Sequential(*layers)
 
 	def gaussian_params(self, nn_x, M11, M12, mu0, sigma0, Pratio):
 		"""
@@ -348,7 +348,7 @@ class RobustNNRegression(ProbabilisticRegressor):
 		ysrc = torch.from_numpy(ysrc).float()
 
 
-		optimizer = torch.optim.Adam(self.nn.parameters(), lr=primal_lr, weight_decay=1e-4)
+		optimizer = torch.optim.Adam(self.nn.parameters(), lr=primal_lr, weight_decay=1e-3)
 		for t in range(1, max_iteration):
 
 			# Dual update
@@ -407,4 +407,3 @@ class RobustNNRegression(ProbabilisticRegressor):
 		mus = mus.detach().numpy()
 		sigmas = sigmas.detach().numpy()
 		return mus * self.y_std + self.y_mean, sigmas * self.y_std ** 2
-

@@ -6,6 +6,7 @@ from scipy.stats import norm
 
 from ProbabilisticRegressor import GaussianProc, RobustRegression, RobustNNRegression
 from SaferOpt import SaferOpt
+from AcquisitionFunction import DynamicUCB, ExpectedImprovement, ProbOfImprovement, EntropySearch
 
 def bayesian_optimization():
 	def truef(xs):
@@ -144,7 +145,7 @@ def robust_regression_2():
 	plt.title("Robust Regression 2")
 	plt.show()
 
-def robsut_nn_regression():
+def robust_nn_regression():
 	def truef(xs):
 		return 2 * (np.sin(xs) * np.cos(xs + 0.7) + np.log(np.abs(xs) + 3) - 1.2)
 
@@ -164,7 +165,7 @@ def robsut_nn_regression():
 	# src_idx = np.random.choice(np.arange(n), size=20, replace=False, p=ps / np.sum(ps)) # gaussian sample source data
 
 
-	src_idx = np.random.randint(0, n, size=20) # uniformly sample source data
+	src_idx = np.random.randint(0, n, size=5) # uniformly sample source data
 	trg_idx = np.setdiff1d(np.arange(n), src_idx)
 
 	src_idx = np.sort(src_idx)
@@ -175,7 +176,7 @@ def robsut_nn_regression():
 	Xtrg = xs[trg_idx]
 	ytrg = ys[trg_idx]
 
-	rr = RobustNNRegression(dim=1, nn_dim=8, kde_bandwidth=0.1)
+	rr = RobustNNRegression(dim=1, nn_dim=[1, 4, 4, 4], kde_bandwidth=0.1)
 	rr.fit(Xsrc, ysrc, Xtrg, max_iteration=10000, verbose=True, primal_lr=1e-4, dual_lr=1e-4, safe_threshold=None)
 
 	mus, sigma = rr.predict(Xtrg)
@@ -205,81 +206,73 @@ def safer_optimization():
 	seed_idx = np.array([20, 300, 480])
 	seed_set = xs[seed_idx]
 
-
-
-
 	rewards_seed_set = ys[seed_idx]
 	safety_seed_set = ys[seed_idx, None]
 
-
-	# rrsafeopt = SaferOpt(
+	# saferopt = SaferOpt(
 	# 	dim=1,
 	# 	xrange=xs,
 	# 	seed_set=seed_set,
 	# 	rewards_seed_set=rewards_seed_set,
 	# 	safety_seed_set=safety_seed_set,
 	# 	thresholds=np.array([threshold]),
-	# 	beta=lambda t: 1 / np.sqrt(np.sqrt(t + 1)),
 	# 	regressor_cls=RobustNNRegression,
-	# 	nn_dim=16,
+	# 	# acquisition_cls=DynamicUCB,
+	# 	acquisition_cls=ExpectedImprovement,
+	# 	nn_dim=[1, 8, 8, 4],
 	# 	kde_bandwidth=0.1,
 	# )
 
-	rrsafeopt = SaferOpt(
+	saferopt = SaferOpt(
 		dim=1,
 		xrange=xs,
 		seed_set=seed_set,
 		rewards_seed_set=rewards_seed_set,
 		safety_seed_set=safety_seed_set,
 		thresholds=np.array([threshold]),
-		beta=lambda t: 1 / np.sqrt(np.sqrt(t + 1)),
 		regressor_cls=GaussianProc,
+		# acquisition_cls=DynamicUCB,
+		acquisition_cls=ExpectedImprovement,
 		kernel_func = lambda x1, x2 : np.exp(-0.5 * np.sum((x1 - x2) ** 2))
 	)
 
-	# rrsafeopt = SaferOpt(
-	# 	dim=1,
-	# 	xrange=xs,
-	# 	seed_set=seed_set,
-	# 	rewards_seed_set=rewards_seed_set,
-	# 	safety_seed_set=safety_seed_set,
-	# 	thresholds=np.array([threshold]),
-	# 	beta=lambda t: 1 / np.sqrt(np.sqrt(t + 1)),
-	# 	regressor_cls=RobustRegression,
-	# )
-
 	fbest = np.max(rewards_seed_set)
-	true_bets = np.max(ys)
+	true_best = np.max(ys)
+	history = []
 
-	for i in range(100):
-		x = rrsafeopt.propose_evaluation()
+
+	for i in range(40):
+		x = saferopt.propose_evaluation()
+		print('iteration %d, true best: %.3f, best achieved: %.3f, proposed: %.3f' % (i, true_best, fbest, truef(x)))
 
 		plt.figure(figsize=(10, 6))
 		plt.plot(xs, ys, label='True function')
-		plt.plot(xs, np.ones([len(xs)]) * rrsafeopt.thresholds[0], label='Threshold')
+		plt.plot(xs, np.ones([len(xs)]) * saferopt.thresholds[0], label='Threshold')
 
-		# plot the reward
-		plt.fill_between(rrsafeopt.xrange[:,0], rrsafeopt.C[:,-2], rrsafeopt.C[:,-1], alpha=0.1, label='reward Confidence Interval', color='r')
+		plt.fill_between(saferopt.xrange[:,0], saferopt.C[:,-2] - 1.96 * saferopt.C[:,-1], saferopt.C[:,-2] + 1.96 * saferopt.C[:,-1], alpha=0.1, label='reward Confidence Interval', color='r')
 		# plt.plot(rrsafeopt.xrange[:,0], (rrsafeopt.C[:,-2]+ rrsafeopt.C[:,-1]) / 2, label='reward mean', color='r')
-		plt.fill_between(rrsafeopt.xrange[:,0], rrsafeopt.C[:,0], rrsafeopt.C[:,1], alpha=0.1, label='safety Confidence Interval', color='b')
+		plt.fill_between(saferopt.xrange[:,0], saferopt.C[:,0] - 1.96 * saferopt.C[:,1], saferopt.C[:,0] + 1.96 * saferopt.C[:,1], alpha=0.1, label='safety Confidence Interval', color='b')
 		# plt.plot(rrsafeopt.xrange[:,0], (rrsafeopt.C[:,0]+ rrsafeopt.C[:,1]) / 2, label='safety mean', color='b')
 
-		plt.scatter(rrsafeopt.observations[:, 0], rrsafeopt.observations[:, -1], label='Observations')
-		plt.scatter(rrsafeopt.xrange[rrsafeopt.S, :][:, 0], np.ones([len(rrsafeopt.S)]) * rrsafeopt.thresholds[0],
+		plt.scatter(saferopt.observations[:, 0], saferopt.observations[:, -1], label='Observations')
+		plt.scatter(saferopt.xrange[saferopt.S, :][:, 0], np.ones([len(saferopt.S)]) * saferopt.thresholds[0],
 		            label='Safe sets')
 		plt.scatter(x, truef(x), label='Proposed evaluation point', marker='v')
 		plt.legend()
-		print('iteration %d, true best: %.3f, best achieved: %.3f, proposed: %.3f' % (i, true_bets, fbest, truef(x)))
-		plt.savefig('./%d.jpg' % i)
 		plt.title("Safer Optimization")
+		plt.savefig('./%d.jpg' % i)
 		plt.show()
 
-		rrsafeopt.add_observation(x, truef(x), np.array([truef(x)]))
+		saferopt.add_observation(x, truef(x), np.array([truef(x)]))
 		fbest = max(fbest, truef(x))
+		history.append(truef(x))
+
+	plt.plot(np.arange(len(history)), history)
+	plt.plot(np.arange(len(history)), np.ones([len(history)]) * true_best)
+	plt.plot(history)
+	plt.show()
+
 
 if __name__ == '__main__':
-	# bayesian_optimization()
-	# robust_regression_1()
-	# robust_regression_2()
-	# robsut_nn_regression()
 	safer_optimization()
+	# robust_nn_regression()

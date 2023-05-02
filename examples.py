@@ -3,26 +3,27 @@ from sklearn.metrics import pairwise_distances
 from typing import Callable
 import matplotlib.pyplot as plt
 from scipy.stats import norm
+from torch import nn
 
 from ProbabilisticRegressor import GaussianProc, RobustRegression, RobustNNRegression
 from SaferOpt import SaferOpt
 from AcquisitionFunction import DynamicUCB, ExpectedImprovement, ProbOfImprovement, EntropySearch
+from RandomFunction import GPRandomFunction, NNRandomFunction
 
 def bayesian_optimization():
 	def truef(xs):
 		return 2 * (np.sin(xs) * np.cos(xs + 0.7) + np.log(np.abs(xs) + 3) - 1.)
 
-	def rbf_kernel(x1, x2):
-		return np.exp(-0.5 * np.sum( (x1-x2)**2 ))
 
 	num = 500
 	xs = np.linspace(-5, 5, num)
+	truef = GPRandomFunction(1, xs, kernel_func=GaussianProc.RBFKernel(0.1), means=0., seed=787)
 	start_idx = 200
 
 	xs_true = xs.copy()
 	f_true = truef(xs_true)
 
-	gp = GaussianProc(dim=1, kernel_func=rbf_kernel, measure_noise=0.01, gaussian_mean=0.1)
+	gp = GaussianProc(dim=1, kernel_func=GaussianProc.RBFKernel(1.), measure_noise=0.01, gaussian_mean=0.1)
 	evaluates = np.array([[xs[start_idx], truef(xs[start_idx])]])
 	xs = np.concatenate([xs[:start_idx], xs[start_idx + 1:]], axis=0)
 	gp.fit(evaluates[:,0], evaluates[:,1])
@@ -30,7 +31,7 @@ def bayesian_optimization():
 
 
 
-	for i in range(5):
+	for i in range(10):
 
 		mu, std = gp.predict(xs)
 		best_idx = np.argmax(mu + std)
@@ -196,32 +197,30 @@ def safer_optimization():
 	def truef(xs):
 		return 2 * (np.sin(xs) + np.cos(xs + 0.7) + np.log(np.abs(xs) + 3) - 1.2) + 0.2
 
+
+
+	# truef = GPRandomFunction(1, xs, kernel_func=GaussianProc.RBFKernel(0.5), means=0.2, seed=787)
+	truef = NNRandomFunction(
+		dim=1, xrange=np.linspace(-10, 10, 150),
+		yrange=[-5.,5.], nn_dim=[1, 128, 128, 128, 1],
+		act=nn.LeakyReLU
+	)
+
 	num = 500
 	xs = np.linspace(-10, 10, num)
 	ys = truef(xs)
-	threshold = 0.3
+	threshold = -0.3
 
 	# seed_idx = np.random.randint(0, num, size=10)
-	# seed_idx = np.random.choice(np.where(ys > threshold)[0], size=4, replace=False)
-	seed_idx = np.array([20, 300, 480])
+	original_state = np.random.get_state()
+	np.random.seed(0)
+	seed_idx = np.random.choice(np.where(ys > threshold)[0], size=6, replace=False)
+	np.random.set_state(original_state)
+	# seed_idx = np.array([20, 300, 400, 480])
 	seed_set = xs[seed_idx]
 
 	rewards_seed_set = ys[seed_idx]
 	safety_seed_set = ys[seed_idx, None]
-
-	# saferopt = SaferOpt(
-	# 	dim=1,
-	# 	xrange=xs,
-	# 	seed_set=seed_set,
-	# 	rewards_seed_set=rewards_seed_set,
-	# 	safety_seed_set=safety_seed_set,
-	# 	thresholds=np.array([threshold]),
-	# 	regressor_cls=RobustNNRegression,
-	# 	# acquisition_cls=DynamicUCB,
-	# 	acquisition_cls=ExpectedImprovement,
-	# 	nn_dim=[1, 8, 8, 4],
-	# 	kde_bandwidth=0.1,
-	# )
 
 	saferopt = SaferOpt(
 		dim=1,
@@ -230,11 +229,26 @@ def safer_optimization():
 		rewards_seed_set=rewards_seed_set,
 		safety_seed_set=safety_seed_set,
 		thresholds=np.array([threshold]),
-		regressor_cls=GaussianProc,
-		# acquisition_cls=DynamicUCB,
-		acquisition_cls=ExpectedImprovement,
-		kernel_func = lambda x1, x2 : np.exp(-0.5 * np.sum((x1 - x2) ** 2))
+		regressor_cls=RobustNNRegression,
+		acquisition_cls=DynamicUCB,
+		# acquisition_cls=ExpectedImprovement,
+		nn_dim=[1, 8, 8, 4],
+		kde_bandwidth=0.1,
 	)
+
+	# saferopt = SaferOpt(
+	# 	dim=1,
+	# 	xrange=xs,
+	# 	seed_set=seed_set,
+	# 	rewards_seed_set=rewards_seed_set,
+	# 	safety_seed_set=safety_seed_set,
+	# 	thresholds=np.array([threshold]),
+	# 	regressor_cls=GaussianProc,
+	# 	# acquisition_cls=DynamicUCB,
+	# 	acquisition_cls=ExpectedImprovement,
+	# 	kernel_func = GaussianProc.RBFKernel(1.),
+	# 	cholesky_factor=True,
+	# )
 
 	fbest = np.max(rewards_seed_set)
 	true_best = np.max(ys)
@@ -274,5 +288,6 @@ def safer_optimization():
 
 
 if __name__ == '__main__':
+	# bayesian_optimization()
 	safer_optimization()
 	# robust_nn_regression()

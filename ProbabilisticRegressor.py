@@ -5,6 +5,7 @@ from sklearn.neighbors import KernelDensity
 import matplotlib.pyplot as plt
 import torch
 from torch import nn
+from scipy.linalg import cho_solve
 
 class ProbabilisticRegressor():
 	def __init__(self, **kwargs):
@@ -20,18 +21,32 @@ class GaussianProc(ProbabilisticRegressor):
 	"""
 	Gaussian process that assume 0 mean and 0 variance (perfect measurement)
 	"""
-	def __init__(self, dim:int, kernel_func : Callable, measure_noise=0.1, gaussian_mean = 0.):
+	@staticmethod
+	def rbf_kernel(x1, x2, sigma=1.):
+		return np.exp(-0.5 / sigma * np.sum((x1 - x2) ** 2))
+
+	class RBFKernel():
+		def __init__(self, scale=1.):
+			self.scale = scale
+
+		def __call__(self, x1, x2):
+			return np.exp(-0.5 / self.scale * np.sum((x1 - x2) ** 2))
+
+	def __init__(self, dim:int, kernel_func : Callable, measure_noise=0., gaussian_mean = 0., cholesky_factor=True):
 		super().__init__()
 		self.dim = dim
 		self.kernel_func = kernel_func
 		self.X = np.zeros([0, self.dim])
 		self.Y = np.zeros([0])
 		self.K = np.zeros([0, 0])
+		self.cho = None
 		self.measure_noise = measure_noise
 		self.gaussian_mean = gaussian_mean
+		self.cholesky_factor = cholesky_factor
 
-	def fit(self, x, y, safe_threshold=None, **kwargs):
+	def fit(self, x, y, safe_threshold=None, K=None, **kwargs):
 		"""
+
 		:param x: np.array, [dim] or [batch, dim]
 		:param y: float or np.array with shape [batch]
 		:return:
@@ -49,14 +64,14 @@ class GaussianProc(ProbabilisticRegressor):
 			x = x[None, :]
 			y = np.array([y])
 
-		self.K = pairwise_distances(x, x, metric=self.kernel_func)
+		self.K = K if K is not None else pairwise_distances(x, x, metric=self.kernel_func)
 		self.X = x
 		self.Y = y
 		self.gaussian_mean = np.mean(y)
 		if safe_threshold is not None:
 			self.gaussian_mean = safe_threshold
-
-		# print(self.K.shape, self.X.shape, self.y.shape)
+		if self.cholesky_factor:
+			self.cho = np.linalg.cholesky(self.K + np.eye(len(x)) * (self.measure_noise**2 + 1e-6))
 
 
 
@@ -76,11 +91,14 @@ class GaussianProc(ProbabilisticRegressor):
 
 		K_12 = pairwise_distances(self.X, x, metric=self.kernel_func)
 		K_22 = pairwise_distances(x, x, metric=self.kernel_func)
-		temp = np.linalg.solve(self.K + np.eye(len(self.X)) * self.measure_noise**2, K_12)
-		# print(temp.shape,(self.Y - self.gaussian_mean).shape)
+
+		if self.cholesky_factor:
+			temp = cho_solve((self.cho, True), K_12)
+		else:
+			temp = np.linalg.solve(self.K + np.eye(len(self.X)) * self.measure_noise**2, K_12)
+
 		u_21 = self.gaussian_mean + temp.T @ (self.Y - self.gaussian_mean)
-		# u_21 = temp.T @ self.Y
-		sigma_21 = np.sqrt(np.diag(K_22 - K_12.T @ temp))
+		sigma_21 = np.sqrt(np.diag(K_22 - K_12.T @ temp + 1e-6))
 
 		if len(u_21) == 0:
 			return u_21[0], sigma_21[0]
@@ -333,7 +351,7 @@ class RobustNNRegression(ProbabilisticRegressor):
 
 		self.mu0 = (np.max(ysrc) + np.min(ysrc)) / 2
 		self.sigma0 = (0.5 * (np.max(ysrc) - self.mu0)) ** 2
-
+		# self.sigma0 = 1e-2
 		if safe_threshold is not None:
 			self.mu0 = (safe_threshold - self.y_mean) / self.y_std
 

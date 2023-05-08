@@ -7,8 +7,11 @@ from torch import nn
 
 from ProbabilisticRegressor import GaussianProc, RobustRegression, RobustNNRegression
 from SaferOpt import SaferOpt
-from AcquisitionFunction import DynamicUCB, ExpectedImprovement, ProbOfImprovement, EntropySearch
+from AcquisitionFunction import UCB, DynamicUCB, ExpectedImprovement, ProbOfImprovement, EntropySearch
 from RandomFunction import GPRandomFunction, NNRandomFunction
+from CartPole import CartPole
+
+
 
 def bayesian_optimization():
 	def truef(xs):
@@ -17,7 +20,12 @@ def bayesian_optimization():
 
 	num = 500
 	xs = np.linspace(-5, 5, num)
-	truef = GPRandomFunction(1, xs, kernel_func=GaussianProc.RBFKernel(0.1), means=0., seed=787)
+	truef = GPRandomFunction(1, xs, kernel_func=GaussianProc.RBFKernel(0.1), means=0., seed=66)
+	# truef = NNRandomFunction(
+	# 	dim=1, xrange=np.linspace(-10, 10, 150),
+	# 	yrange=[-5., 5.], nn_dim=[1, 128, 128, 128, 1],
+	# 	act=nn.ReLU
+	# )
 	start_idx = 200
 
 	xs_true = xs.copy()
@@ -28,13 +36,20 @@ def bayesian_optimization():
 	xs = np.concatenate([xs[:start_idx], xs[start_idx + 1:]], axis=0)
 	gp.fit(evaluates[:,0], evaluates[:,1])
 
+	# acqui = DynamicUCB()
+	acqui = UCB()
+	# acqui = ProbOfImprovement()
+	# acqui = ExpectedImprovement()
 
 
 
 	for i in range(10):
 
+		fbest = np.max(evaluates[:,1])
+
 		mu, std = gp.predict(xs)
-		best_idx = np.argmax(mu + std)
+		# best_idx = np.argmax(mu + std)
+		best_idx = acqui(mu, std, r_best = fbest)
 		print(xs.shape, best_idx, mu.shape, std.shape)
 		x_choice = xs[best_idx]
 		f_choice = truef(x_choice)
@@ -44,8 +59,6 @@ def bayesian_optimization():
 		plt.scatter(evaluates[:,0], evaluates[:,1], label='Evaluations', c='blue')
 		plt.fill_between(xs, mu - std, mu + std, color='red', alpha=0.15, label='$\mu \pm \sigma$')
 		plt.legend()
-		# plt.savefig('./%d.jpg' % i)
-		# plt.close()
 		plt.title("Bayesian Optimization")
 		plt.show()
 
@@ -201,8 +214,8 @@ def safer_optimization():
 
 	# truef = GPRandomFunction(1, xs, kernel_func=GaussianProc.RBFKernel(0.5), means=0.2, seed=787)
 	truef = NNRandomFunction(
-		dim=1, xrange=np.linspace(-10, 10, 150),
-		yrange=[-5.,5.], nn_dim=[1, 128, 128, 128, 1],
+		dim=1, xrange=np.linspace(-20, 20, 100),
+		yrange=[-5.,5.], nn_dim=[1, 64, 64, 64, 1],
 		act=nn.LeakyReLU
 	)
 
@@ -214,7 +227,7 @@ def safer_optimization():
 	# seed_idx = np.random.randint(0, num, size=10)
 	original_state = np.random.get_state()
 	np.random.seed(0)
-	seed_idx = np.random.choice(np.where(ys > threshold)[0], size=6, replace=False)
+	seed_idx = np.random.choice(np.where(ys > threshold)[0], size=10, replace=False)
 	np.random.set_state(original_state)
 	# seed_idx = np.array([20, 300, 400, 480])
 	seed_set = xs[seed_idx]
@@ -232,8 +245,10 @@ def safer_optimization():
 		regressor_cls=RobustNNRegression,
 		acquisition_cls=DynamicUCB,
 		# acquisition_cls=ExpectedImprovement,
+		# acquisition_cls=ProbOfImprovement,
 		nn_dim=[1, 8, 8, 4],
 		kde_bandwidth=0.1,
+		act=nn.Tanh
 	)
 
 	# saferopt = SaferOpt(
@@ -286,8 +301,21 @@ def safer_optimization():
 	plt.plot(history)
 	plt.show()
 
+def inverted_pendulum():
+	env = CartPole()
+	state = [0., 0., 0., 0.]
+	while True:
+		env.show_cart(state, 0.1)
+		action = np.random.uniform(-1, 1, size=1)
+		state, reward, terminate = env.simulate(action, state)
+		if terminate:
+			break
+
+
+
 
 if __name__ == '__main__':
-	# bayesian_optimization()
-	safer_optimization()
+	bayesian_optimization()
+	# safer_optimization()
 	# robust_nn_regression()
+	# inverted_pendulum()
